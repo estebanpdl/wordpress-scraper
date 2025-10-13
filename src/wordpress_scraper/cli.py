@@ -68,6 +68,7 @@ Examples:
     scraping.add_argument('--start-page', type=int, default=1, help='Starting page number (default: 1)')
     scraping.add_argument('--delay', type=float, default=1.0, help='Delay between requests in seconds (default: 1.0)')
     scraping.add_argument('--no-strip-html', action='store_true', help='Keep HTML tags in content')
+    scraping.add_argument('--search', type=str, help='Search keyword/phrase to filter posts')
 
     # Update options
     update_group = parser.add_argument_group('Update Options')
@@ -110,6 +111,7 @@ def load_config_from_args(args: argparse.Namespace) -> ScraperConfig:
         start_page=args.start_page,
         delay=args.delay,
         strip_html=not args.no_strip_html,
+        search=args.search if hasattr(args, 'search') else None,
         update=args.update,
         resume=args.resume
     )
@@ -154,8 +156,24 @@ def run_scraper(config: ScraperConfig, update: bool = False, resume: bool = Fals
                 logger.debug(f"Looking for metadata with URL: {config.wordpress_url}")
                 next_page = metadata_mgr.get_next_page_to_fetch(config.wordpress_url)
                 last_page = metadata_mgr.get_last_page_scraped(config.wordpress_url)
+                stored_search = metadata_mgr.get_search_query(config.wordpress_url)
 
-                logger.debug(f"Retrieved: next_page={next_page}, last_page={last_page}")
+                logger.debug(f"Retrieved: next_page={next_page}, last_page={last_page}, search_query={stored_search}")
+
+                # Validate search consistency
+                if stored_search != config.search:
+                    if stored_search and not config.search:
+                        logger.error(f"Original scrape used search='{stored_search}', but no search provided.")
+                        logger.error(f"Please add: --search \"{stored_search}\"")
+                        return False
+                    elif not stored_search and config.search:
+                        logger.error(f"Original scrape had no search filter, but --search '{config.search}' provided.")
+                        logger.error("Cannot mix filtered and unfiltered data.")
+                        return False
+                    elif stored_search and config.search:
+                        logger.error(f"Search query mismatch. Original: '{stored_search}', Current: '{config.search}'")
+                        logger.error("Cannot resume with different search query.")
+                        return False
 
                 if next_page and last_page:
                     config.start_page = next_page
@@ -168,13 +186,31 @@ def run_scraper(config: ScraperConfig, update: bool = False, resume: bool = Fals
             # Handle update mode
             if update:
                 latest_modified = metadata_mgr.get_latest_modified_date(config.wordpress_url)
+                stored_search = metadata_mgr.get_search_query(config.wordpress_url)
+
+                # Validate search consistency
+                if stored_search != config.search:
+                    if stored_search and not config.search:
+                        logger.error(f"Original scrape used search='{stored_search}', but no search provided.")
+                        logger.error(f"Please add: --search \"{stored_search}\"")
+                        return False
+                    elif not stored_search and config.search:
+                        logger.error(f"Original scrape had no search filter, but --search '{config.search}' provided.")
+                        logger.error("Cannot mix filtered and unfiltered data.")
+                        return False
+                    elif stored_search and config.search:
+                        logger.error(f"Search query mismatch. Original: '{stored_search}', Current: '{config.search}'")
+                        logger.error("Cannot update with different search query.")
+                        return False
 
                 if not latest_modified:
                     logger.warning("No previous scrape found. Running full scrape.")
                     update = False
                 else:
                     logger.info(f"Fetching posts modified after: {latest_modified}")
-                    all_posts_raw = client.fetch_modified_since(latest_modified)
+                    if config.search:
+                        logger.info(f"With search filter: '{config.search}'")
+                    all_posts_raw = client.fetch_modified_since(latest_modified, search=config.search)
 
                     if not all_posts_raw:
                         logger.info("No new or modified posts found.")
@@ -183,13 +219,26 @@ def run_scraper(config: ScraperConfig, update: bool = False, resume: bool = Fals
             # Standard scraping (or fallback from update)
             last_page_completed = 0
             if not update:
-                logger.info("Starting full scrape...")
+                if config.search:
+                    logger.info(f"Starting search scrape with query: '{config.search}'")
+                else:
+                    logger.info("Starting full scrape...")
+
                 total_posts = client.get_total_posts_count()
                 if total_posts:
                     logger.info(f"Total posts available: {total_posts}")
 
+                # Prepare additional parameters for search
+                additional_params = {}
+                if config.search:
+                    additional_params['search'] = config.search
+
                 current_page = config.start_page
-                for page_posts in client.fetch_all(start_page=config.start_page, max_pages=config.max_pages):
+                for page_posts in client.fetch_all(
+                    start_page=config.start_page,
+                    max_pages=config.max_pages,
+                    additional_params=additional_params if additional_params else None
+                ):
                     all_posts_raw.extend(page_posts)
                     logger.info(f"Fetched page {current_page} with {len(page_posts)} posts (Total: {len(all_posts_raw)})")
 
@@ -243,6 +292,7 @@ def run_scraper(config: ScraperConfig, update: bool = False, resume: bool = Fals
                 latest_post_modified=latest_modified_gmt,
                 total_posts=len(processed_posts),
                 last_page=last_page_completed,
+                search_query=config.search,
                 status='complete'
             )
 

@@ -219,12 +219,13 @@ class WordPressClient:
             logger.warning(f"Could not get total posts count: {e}")
             return None
 
-    def fetch_modified_since(self, modified_after: str) -> List[Dict[str, Any]]:
+    def fetch_modified_since(self, modified_after: str, search: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Fetch all posts modified after a specific date.
 
         Args:
             modified_after: ISO 8601 date string (e.g., '2023-01-01T00:00:00')
+            search: Optional search keyword/phrase to filter posts
 
         Returns:
             List of all post dictionaries modified after the given date
@@ -233,9 +234,13 @@ class WordPressClient:
             WordPressAPIError: If a request fails
         """
         logger.info(f"Fetching posts modified after: {modified_after}")
+        if search:
+            logger.info(f"With search filter: '{search}'")
 
         # WordPress API parameter for filtering by modification date
         additional_params = {'modified_after': modified_after}
+        if search:
+            additional_params['search'] = search
 
         all_posts = []
         for posts in self.fetch_all(start_page=1, max_pages=None, additional_params=additional_params):

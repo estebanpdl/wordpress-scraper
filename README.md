@@ -100,6 +100,24 @@ wordpress-scraper --url https://example.com --dry-run
 wordpress-scraper --url https://example.com --verbose
 ```
 
+#### Search for specific keywords
+
+```bash
+# Search for posts containing "Ukraine"
+wordpress-scraper --url https://example.com --search "Ukraine" --output-name ukraine_posts
+
+# Search with phrase
+wordpress-scraper --url https://example.com --search "climate change" --output-name climate_posts
+```
+
+**Important - Search Limitations:**
+
+The `--search` parameter uses WordPress's built-in REST API search, which has limitations:
+- **Multiple fields**: Searches across title, content, excerpt, and URLs within content
+- **No exact phrase control**: Cannot force exact phrase matching from the API; Matches partial words; It is case-insensitive.
+
+If you need more precise filtering, consider post-processing the exported JSON/Excel results to filter false positives manually.
+
 ### Updating Existing Scrapes
 
 The tool provides two modes for working with existing scrapes: `--update` and `--resume`.
@@ -175,6 +193,26 @@ wordpress-scraper --url https://example.com --output-dir ./data --output-name my
 - **--update**: Fetches posts modified AFTER your last scrape (gets newer content)
 - **--resume**: Continues from last page scraped (completes incomplete scrapes)
 
+#### Search Consistency with Update/Resume
+
+When using `--search`, you **must provide the same search query** for `--update` and `--resume`:
+
+```bash
+# Initial search scrape
+wordpress-scraper --url https://news.com --search "Ukraine" --output-name ukraine_posts
+
+# Later: Resume (must include same search)
+wordpress-scraper --url https://news.com --search "Ukraine" --output-name ukraine_posts --resume
+
+# Later: Update (must include same search)
+wordpress-scraper --url https://news.com --search "Ukraine" --output-name ukraine_posts --update
+```
+
+**Important:** The tool enforces search consistency to prevent mixing incompatible datasets:
+- If original scrape used search → You **must** provide the same search for update/resume
+- If original scrape had no search → You **cannot** add search for update/resume
+- Search query must match exactly (case-sensitive)
+
 ### Using Configuration Files
 
 Create a config file to avoid typing long commands:
@@ -192,6 +230,7 @@ max_pages: null  # null means all pages
 start_page: 1
 delay: 1.0
 strip_html: true
+search: null  # Set to keyword/phrase to filter posts (e.g., "Ukraine")
 update: false  # Set to true to fetch only new/modified posts
 resume: false  # Set to true to resume from last page
 ```
@@ -208,6 +247,7 @@ resume: false  # Set to true to resume from last page
   "start_page": 1,
   "delay": 1.0,
   "strip_html": true,
+  "search": null,
   "update": false,
   "resume": false
 }
@@ -247,6 +287,7 @@ Scraping Options:
   --start-page N           Starting page number (default: 1)
   --delay SECONDS          Delay between requests (default: 1.0)
   --no-strip-html          Keep HTML tags in content
+  --search KEYWORD         Search keyword/phrase to filter posts
 
 Update Options:
   --update                 Fetch only new/modified posts since last scrape

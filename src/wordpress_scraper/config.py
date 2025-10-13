@@ -26,6 +26,7 @@ class ScraperConfig:
     start_page: int = 1
     delay: float = 1.0  # Delay between requests in seconds
     strip_html: bool = True
+    search: Optional[str] = None  # Search keyword/phrase to filter posts
 
     # Update/Resume settings
     update: bool = False  # Fetch only new/modified posts

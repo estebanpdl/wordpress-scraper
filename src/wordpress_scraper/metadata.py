@@ -22,6 +22,7 @@ class MetadataManager:
             total_posts_scraped INTEGER DEFAULT 0,
             last_page_scraped INTEGER DEFAULT 0,
             next_page_to_fetch INTEGER DEFAULT 1,
+            search_query TEXT,
             scrape_status TEXT DEFAULT 'in_progress'
         )
     '''
@@ -56,13 +57,17 @@ class MetadataManager:
         cursor = self.connection.cursor()
         cursor.execute(self.CREATE_TABLE_SQL)
 
-        # Migration: Add next_page_to_fetch column if it doesn't exist
+        # Migration: Add missing columns if they don't exist
         cursor.execute("PRAGMA table_info(scrape_metadata)")
         columns = [row[1] for row in cursor.fetchall()]
 
         if 'next_page_to_fetch' not in columns:
             logger.info("Migrating metadata table: adding next_page_to_fetch column")
             cursor.execute("ALTER TABLE scrape_metadata ADD COLUMN next_page_to_fetch INTEGER DEFAULT 1")
+
+        if 'search_query' not in columns:
+            logger.info("Migrating metadata table: adding search_query column")
+            cursor.execute("ALTER TABLE scrape_metadata ADD COLUMN search_query TEXT")
 
         self.connection.commit()
         cursor.close()
@@ -79,6 +84,7 @@ class MetadataManager:
         total_posts: int = 0,
         last_page: int = 0,
         next_page: Optional[int] = None,
+        search_query: Optional[str] = None,
         status: str = 'complete'
     ):
         """
@@ -90,6 +96,7 @@ class MetadataManager:
             total_posts: Total number of posts scraped
             last_page: Last page number scraped
             next_page: Next page to fetch (for resume)
+            search_query: Search keyword/phrase used (None if no search)
             status: Scrape status ('complete', 'interrupted', 'updating')
         """
         self.connect()
@@ -117,9 +124,10 @@ class MetadataManager:
                     total_posts_scraped = ?,
                     last_page_scraped = ?,
                     next_page_to_fetch = ?,
+                    search_query = ?,
                     scrape_status = ?
                 WHERE id = ?
-            ''', (now, latest_post_modified, total_posts, last_page, next_page, status, result[0]))
+            ''', (now, latest_post_modified, total_posts, last_page, next_page, search_query, status, result[0]))
         else:
             # Insert new
             cursor.execute('''
@@ -130,9 +138,10 @@ class MetadataManager:
                     total_posts_scraped,
                     last_page_scraped,
                     next_page_to_fetch,
+                    search_query,
                     scrape_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (wordpress_url, now, latest_post_modified, total_posts, last_page, next_page, status))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (wordpress_url, now, latest_post_modified, total_posts, last_page, next_page, search_query, status))
 
         self.connection.commit()
         cursor.close()
@@ -215,6 +224,21 @@ class MetadataManager:
             logger.debug(f"Found metadata for {wordpress_url}: next_page_to_fetch={next_page}, last_page_scraped={metadata.get('last_page_scraped')}")
             return next_page
         logger.debug(f"No metadata found for {wordpress_url}")
+        return None
+
+    def get_search_query(self, wordpress_url: str) -> Optional[str]:
+        """
+        Get the search query from metadata.
+
+        Args:
+            wordpress_url: WordPress site URL
+
+        Returns:
+            Search query string, or None if no metadata exists or no search was used
+        """
+        metadata = self.get_latest_metadata(wordpress_url)
+        if metadata:
+            return metadata.get('search_query')
         return None
 
     def update_progress(self, wordpress_url: str, page: int, posts_count: int):
